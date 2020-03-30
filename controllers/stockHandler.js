@@ -3,7 +3,7 @@
 class stockDataHandler {
   constructor(symbol, latestPrice) {
     this.stockData = {};
-    if(symbol) {this.stockData.stock = symbol};
+    if(symbol) {this.stockData.stock = symbol.toUpperCase()};
     if(latestPrice) {this.stockData.price = latestPrice};
   }
 }

@@ -35,6 +35,17 @@ mongoose.connect(CONNECTION_STRING, connectOptions, err => {
   }
 });
 
+/*      const test = new stockModel({stock: 'GOOG', likes: ['1.1.1.1', '2.2.2.2']});
+        test.save((err, res) => {
+          if (err){console.log(err)}
+          else{console.log('OK');}
+        }) */
+
+
+
+
+
+
 
 module.exports = function (app) {
   
@@ -48,20 +59,54 @@ module.exports = function (app) {
       const twoStocksInRequest = typeof stock === 'object';
     
       if (oneStockInRequest && like) {
-        /*      const test = new stockModel({stock: 'GOOG', likes: ['1.1.1.1', '2.2.2.2']});
-        test.save((err, res) => {
-          if (err){console.log(err)}
-          else{console.log('OK');}
-        }) */
-        const ip = req.clientIp;
+        
+        const clientIp = req.clientIp;
+        console.log(clientIp)
+        
+        getNasdaqData(stock)
+        .then(data => {
+          const companyIsListedInNasdaq = (data !==  'Unknown symbol') && (data !==  'Invalid symbol');
+          
+          if (companyIsListedInNasdaq) {
+            const record = new stockDataHandler(data.symbol, data.latestPrice);
+            stockModel.findOne({stock: record.stockData.stock}, (error, response) => {
+              if (error) {
+                res.send(error.message)
+              }
+              else {
+                if (response === null) {
+                  const stockToStoreInDB = new stockModel({
+                    stock: record.stockData.stock,
+                    likes: [clientIp]
+                  })
+                  stockToStoreInDB.save((error2, response2) => {
+                    if (error2) {
+                      res.send(error.message)
+                    }
+                    else{
+                      res.json({...record, likes: 1});
+                    }
+                  })
+                }
+                else {
+                  //Obsłużyć przypadek gdy company jest w Nasdaq i figuruje już w DB
+                  res.json(response)
+                }
+              }
+            })      
+          }
+          else {
+            res.send('Company is not listed on NASDAQ.')
+          }
+        })
         
         
-        console.log(ip)
-         res.send('string and like')
+      //  console.log(clientIp)
+      //   res.send('string and like')
        }
     
       else if (oneStockInRequest && !like) {   
-        
+               
         getNasdaqData(stock)
         .then(data=>{
           const record = new stockDataHandler(data.symbol, data.latestPrice);
