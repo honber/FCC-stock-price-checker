@@ -1,9 +1,14 @@
 /*
-*
-*
-*       Complete the API routing below
-*
-*
+  API serves 4 scenarios:
+1. When I type in input (testForm2) company symbol without checking like (testForm2), API cheks if company is listed in Nasdaq and if it is stored in my DB. After then returns an object.
+2. When I type in input (testForm2) company symbol and I check like (testForm2), API cheks if if company is listed in Nasdaq (if it is not - returns information)
+   If company is listed in Nasdaq and not stored in my DB - new record is stored in DB, and object is returned (likes: 1)
+   If company is listed in Nasdaq and stored in my DB - API ckecks if IP of client, which sent a request is equal to any of IPs stored in likes Array: no -> adds client's IP to likes Array.
+   
+
+
+
+
 */
 
 //http://eoddata.com/stocklist/NASDAQ.htm
@@ -74,11 +79,11 @@ module.exports = function (app) {
                 res.send(error.message)
               }
               else {
-                if (response === null) {
+                if (response === null) { // company is listed in Nasdaq but not stored in my DB 
                   const stockToStoreInDB = new stockModel({
                     stock: record.stockData.stock,
                     likes: [clientIp]
-                  })
+                  });
                   stockToStoreInDB.save((error2, response2) => {
                     if (error2) {
                       res.send(error.message)
@@ -88,9 +93,20 @@ module.exports = function (app) {
                     }
                   })
                 }
-                else {
-                  //Obsłużyć przypadek gdy company jest w Nasdaq i figuruje już w DB
-                  res.json(response)
+                else { // company is listed in Nasdaq and stored in my DB 
+                  if (response.likes.includes(clientIp)) {
+                    res.json({...record, likes: response.likes.length}); 
+                  }
+                  else {
+                   stockModel.findByIdAndUpdate(response._id, {likes: [...response.likes, clientIp]}, {new: true}, (error2, response2) => {
+                     if (error2) {
+                       res.send(error2.message)
+                     }
+                     else {
+                       res.json({...record, likes: response2.likes.length})
+                     }
+                   })
+                  }    
                 }
               }
             })      
@@ -99,10 +115,6 @@ module.exports = function (app) {
             res.send('Company is not listed on NASDAQ.')
           }
         })
-        
-        
-      //  console.log(clientIp)
-      //   res.send('string and like')
        }
     
       else if (oneStockInRequest && !like) {   
