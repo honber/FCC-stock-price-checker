@@ -1,9 +1,14 @@
 /*
-*
-*
-*       Complete the API routing below
-*
-*
+  API serves 4 scenarios:
+1. When I type in input (testForm2) company symbol without checking like (testForm2), API cheks if company is listed in Nasdaq and if it is stored in my DB. After then returns an object.
+2. When I type in input (testForm2) company symbol and I check like (testForm2), API cheks if if company is listed in Nasdaq (if it is not - returns information)
+   If company is listed in Nasdaq and not stored in my DB - new record is stored in DB, and object is returned (likes: 1)
+   If company is listed in Nasdaq and stored in my DB - API ckecks if IP of client, which sent a request is equal to any of IPs stored in likes Array: no -> adds client's IP to likes Array.
+   
+
+
+
+
 */
 
 //http://eoddata.com/stocklist/NASDAQ.htm
@@ -42,7 +47,11 @@ mongoose.connect(CONNECTION_STRING, connectOptions, err => {
         }) */
 
 
-
+function companyIsListedInNasdaq(data) {
+  const isNotListed = ['Unknown symbol', 'Invalid symbol'];
+  return isNotListed.includes(data) ? false: true;
+  
+}
 
 
 
@@ -65,69 +74,55 @@ module.exports = function (app) {
         
         getNasdaqData(stock)
         .then(data => {
-          const companyIsListedInNasdaq = (data !==  'Unknown symbol') && (data !==  'Invalid symbol');
           
-          if (companyIsListedInNasdaq) {
-            const record = new stockDataHandler(data.symbol, data.latestPrice);
-            stockModel.findOne({stock: record.stockData.stock}, (error, response) => {
-              if (error) {
-                res.send(error.message)
-              }
-              else {
-                if (response === null) {
-                  const stockToStoreInDB = new stockModel({
-                    stock: record.stockData.stock,
-                    likes: [clientIp]
-                  })
-                  stockToStoreInDB.save((error2, response2) => {
-                    if (error2) {
-                      res.send(error.message)
-                    }
-                    else{
-                      res.json({...record, likes: 1});
-                    }
-                  })
-                }
-                else {
-                  //Obsłużyć przypadek gdy company jest w Nasdaq i figuruje już w DB
-                  res.json(response)
-                }
-              }
-            })      
-          }
-          else {
-            res.send('Company is not listed on NASDAQ.')
-          }
+          if (!companyIsListedInNasdaq(data)) { return res.send('Company is not listed on NASDAQ.') } 
+          
+          const record = new stockDataHandler(data.symbol, data.latestPrice);
+          stockModel.findOne({stock: record.stockData.stock}, (error, response) => {
+            if (error) { res.send(error.message); }
+            if (response === null) { // company is listed in Nasdaq but not stored in my DB 
+              const stockToStoreInDB = new stockModel({
+                stock: record.stockData.stock,
+                likes: [clientIp]
+              });
+              stockToStoreInDB.save((error, response) => {
+                if (error) { res.send(error.message); }
+                return res.json({...record, likes: 1});
+              })
+            }
+            
+            // company is listed in Nasdaq, stored in my DB and client's IP is listed in 'likes' array
+            if (response.likes.includes(clientIp)) { return res.json({...record, likes: response.likes.length}); }
+            
+            // company is listed in Nasdaq, stored in my DB but client's IP is not listed in 'likes' array
+            stockModel.findByIdAndUpdate(response._id, {likes: [...response.likes, clientIp]}, {new: true}, (error2, response2) => {
+              if (error2) { res.send(error2.message) }
+              return res.json( {...record, likes: response2.likes.length})    
+            })
+          })      
         })
-        
-        
-      //  console.log(clientIp)
-      //   res.send('string and like')
-       }
+      }
     
       else if (oneStockInRequest && !like) {   
-               
         getNasdaqData(stock)
-        .then(data=>{
+        .then(data => {
+          if (!companyIsListedInNasdaq(data)) { return res.send('Company is not listed on NASDAQ.'); } 
           const record = new stockDataHandler(data.symbol, data.latestPrice);
           stockModel.findOne({stock: record.stockData.stock}, (error, response) =>{
-            if (error) {
-              res.send(error.message)
-            }
-            else {
-              console.log(response)
-              response !== null ? res.json({...record, likes: response.likes.length}) : res.json({...record, likes: 0})
-            }  
+            if (error) { res.send(error.message) }
+            return response !== null ? res.json({...record, likes: response.likes.length}) : res.json({...record, likes: 0})  
           })
         });
-    
       }
+    
       else if (twoStocksInRequest && like) {
         res.send('2 strings and like')
       }
+    
       else if(twoStocksInRequest && !like) {
         res.send('2 strings, no like')
       }
+    
       else {
         res.json({"stockData":{"likes":0}})
       }
