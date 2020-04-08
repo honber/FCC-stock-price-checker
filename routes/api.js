@@ -54,14 +54,12 @@ function companyIsListedInNasdaq(data) {
 }
 
 
-
-
 module.exports = function (app) {
   
   app.use(requestIp.mw())
 
   app.route('/api/stock-prices')
-    .get(function (req, res){
+    .get(async function (req, res){
       const stock = req.query.stock
       const like = req.query.like;
       const oneStockInRequest = typeof stock === 'string';
@@ -70,58 +68,103 @@ module.exports = function (app) {
       if (oneStockInRequest && like) {
         
         const clientIp = req.clientIp;
-        console.log(clientIp)
+        console.log(`Client's IP: ${clientIp}`);
         
-        getNasdaqData(stock)
-        .then(data => {
-          
-          if (!companyIsListedInNasdaq(data)) { return res.send('Company is not listed on NASDAQ.') } 
-          
-          const record = new stockDataHandler(data.symbol, data.latestPrice);
-          stockModel.findOne({stock: record.stockData.stock}, (error, response) => {
+        const stockData = await getNasdaqData(stock);
+        if (!companyIsListedInNasdaq(stockData)) { return res.send('Company is not listed on NASDAQ.'); } 
+        const record = new stockDataHandler(stockData.symbol, stockData.latestPrice);
+        const stockDataFromDB = await stockModel.findOne({stock: record.stock}, (error, response) => {
             if (error) { res.send(error.message); }
-            if (response === null) { // company is listed in Nasdaq but not stored in my DB 
-              const stockToStoreInDB = new stockModel({
-                stock: record.stockData.stock,
-                likes: [clientIp]
-              });
-              stockToStoreInDB.save((error, response) => {
-                if (error) { res.send(error.message); }
-                return res.json({...record, likes: 1});
-              })
-            }
-            
-            // company is listed in Nasdaq, stored in my DB and client's IP is listed in 'likes' array
-            if (response.likes.includes(clientIp)) { return res.json({...record, likes: response.likes.length}); }
-            
-            // company is listed in Nasdaq, stored in my DB but client's IP is not listed in 'likes' array
-            stockModel.findByIdAndUpdate(response._id, {likes: [...response.likes, clientIp]}, {new: true}, (error2, response2) => {
-              if (error2) { res.send(error2.message) }
-              return res.json( {...record, likes: response2.likes.length})    
-            })
-          })      
-        })
-      }
-    
-      else if (oneStockInRequest && !like) {   
-        getNasdaqData(stock)
-        .then(data => {
-          if (!companyIsListedInNasdaq(data)) { return res.send('Company is not listed on NASDAQ.'); } 
-          const record = new stockDataHandler(data.symbol, data.latestPrice);
-          stockModel.findOne({stock: record.stockData.stock}, (error, response) =>{
-            if (error) { res.send(error.message) }
-            return response !== null ? res.json({...record, likes: response.likes.length}) : res.json({...record, likes: 0})  
-          })
+            return response;
+        });
+        
+        // company is listed in Nasdaq but not stored in my DB 
+        if (stockDataFromDB === null) { 
+          const stockToStoreInDB = new stockModel({
+            stock: record.stock,
+            likes: [clientIp]
+          });
+          stockToStoreInDB.save((error, response) => {
+            if (error) { res.send(error.message); }
+            return res.json({stockData: {...record, likes: 1}});
+          });
+        }
+          
+        // company is listed in Nasdaq, stored in my DB and client's IP is listed in 'likes' array
+        if (stockDataFromDB.likes.includes(clientIp)) { return res.json({stockData: {...record, likes: stockDataFromDB.likes.length}}); }
+
+        // company is listed in Nasdaq, stored in my DB but client's IP is not listed in 'likes' array
+        stockModel.findByIdAndUpdate(stockDataFromDB._id, {likes: [...stockDataFromDB.likes, clientIp]}, {new: true}, (error, response) => {
+          if (error) { res.send(error.message); }
+          return res.json( {stockData: {...record, likes: response.likes.length}});    
         });
       }
+         
+    
+      else if (oneStockInRequest && !like) {   
+        const stockData = await getNasdaqData(stock);
+        if (!companyIsListedInNasdaq(stockData)) { return res.send('Company is not listed on NASDAQ.'); } 
+        const record = new stockDataHandler(stockData.symbol, stockData.latestPrice);
+        const stockDataFromDB = await stockModel.findOne({stock: record.stock}, (error, response) =>{
+            if (error) { res.send(error.message) }
+            return response
+        });
+        return stockDataFromDB !== null 
+          ? 
+          res.json({stockData: {...record, likes: stockDataFromDB.likes.length}}) 
+          : 
+          res.json({stockData: {...record, likes: 0}}) 
+      }
+    
     
       else if (twoStocksInRequest && like) {
         res.send('2 strings and like')
       }
     
+    
       else if(twoStocksInRequest && !like) {
-        res.send('2 strings, no like')
+        let record1, record2 = {};
+        let stock1LikesCount, stock2LikesCount;
+        let relLikes1, relLikes2;
+        let result1, result2;
+        const stock1 = stock[0];
+        const stock2 = stock[1];
+        
+        let stock1Data = await getNasdaqData(stock1);
+        if (!companyIsListedInNasdaq(stock1Data)) {  stock1LikesCount = 0 }
+        else { 
+          record1 = new stockDataHandler(stock1Data.symbol, stock1Data.latestPrice); 
+          const stock1DataFromDB = await stockModel.findOne({stock: record1.stock}, (error, response) => {
+            if (error) { res.send(error.message) }
+            return response
+          })
+          stock1DataFromDB === null ? stock1LikesCount = 0 : stock1LikesCount = stock1DataFromDB.likes.length;
+        }
+              
+        let stock2Data = await getNasdaqData(stock2);
+        if (!companyIsListedInNasdaq(stock2Data)) { stock2LikesCount = 0 } 
+        else {
+          record2 = new stockDataHandler(stock2Data.symbol, stock2Data.latestPrice);   
+          const stock2DataFromDB = await stockModel.findOne({stock: record2.stock}, (error, response) => {
+            if (error) { res.send(error.message) }
+            return response
+          })
+          stock2DataFromDB === null ? stock2LikesCount = 0 : stock2LikesCount = stock2DataFromDB.likes.length;          
+        }
+        
+        
+        relLikes1 = stock1LikesCount - stock2LikesCount;
+        relLikes2 = stock2LikesCount - stock1LikesCount;
+        
+        result1 = {...record1, rel_likes: relLikes1}
+        result2 = {...record2, rel_likes: relLikes2}
+        
+        res.json({stockData: [result1, result2]});
+
       }
+    
+    
+    
     
       else {
         res.json({"stockData":{"likes":0}})
