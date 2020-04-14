@@ -36,7 +36,7 @@ function companyIsListedInNasdaq(data) {
 
 async function prepareOneStockData(stockName) {
   const stockData = await getNasdaqData(stockName);
-  if (!companyIsListedInNasdaq(stockData)) { return 'Company is not listed on NASDAQ.'; } 
+  if (!companyIsListedInNasdaq(stockData)) { return {likes: 0}; } 
   const record = new stockDataHandler(stockData.symbol, stockData.latestPrice);
   const stockDataFromDB = await stockModel.findOne({stock: record.stock}, (error, response) =>{
     if (error) { console.log(error.message); }
@@ -44,28 +44,41 @@ async function prepareOneStockData(stockName) {
   });
   return stockDataFromDB !== null 
   ? 
-  ({stockData: {...record, likes: stockDataFromDB.likes.length}}) 
+  ({...record, likes: stockDataFromDB.likes.length}) 
   : 
-  ({stockData: {...record, likes: 0}}) 
+  ({...record, likes: 0}) 
 }
 
-async function prepareOneStockDataWhenLikeIsChecked(stockName) {
-}
-
-async function prepareStockDataOneOfTwo(stockName) {
-  let stockLikesCount = 0;
-  let record = {};  
-  let stockData = await getNasdaqData(stockName);
-    if (companyIsListedInNasdaq(stockData)) { 
-      record = new stockDataHandler(stockData.symbol, stockData.latestPrice); 
-      const stockDataFromDB = await stockModel.findOne({stock: record.stock}, (error, response) => {
-        if (error) { console.log(error.message) }
-        return response
-      })
-      stockDataFromDB === null ? stockLikesCount = 0 : stockLikesCount = stockDataFromDB.likes.length;    
-    }
-    record.likes = stockLikesCount;
-    return record;
+async function prepareOneStockDataWhenLikeIsChecked(stockName, currentIP) {
+  
+  const stockData = await getNasdaqData(stockName);
+  if (!companyIsListedInNasdaq(stockData)) { return {likes: 0}; } 
+  const record = new stockDataHandler(stockData.symbol, stockData.latestPrice);
+  const stockDataFromDB = await stockModel.findOne({stock: record.stock}, (error, response) => {
+    if (error) { console.log(error.message); }
+    return response;
+  });
+      
+  // company is listed in Nasdaq but not stored in my DB 
+  if (stockDataFromDB === null) { 
+    const stockToStoreInDB = new stockModel({
+      stock: record.stock,
+      likes: [currentIP]
+    });
+    await stockToStoreInDB.save((error, response) => {
+      if (error) { console.log(error.message); }
+      return response;
+    });
+    return {...record, likes: 1};
+  }
+  // company is listed in Nasdaq, stored in my DB and client's IP is listed in 'likes' array
+  if (stockDataFromDB.likes.includes(currentIP)) { return {...record, likes: stockDataFromDB.likes.length}; };
+  // company is listed in Nasdaq, stored in my DB but client's IP is not listed in 'likes' array
+  const result =  await stockModel.findByIdAndUpdate(stockDataFromDB._id, {likes: [...stockDataFromDB.likes, currentIP]}, {new: true}, (error, response) => {
+    if (error) { console.log(error.message); }
+    return response;
+  });
+  return {...record, likes: result.likes.length};   
 }
 
 
@@ -97,55 +110,39 @@ module.exports = function (app) {
       const twoStocksInRequest = typeof stock === 'object';
     
       if (oneStockInRequest && like) {
-        
         const clientIp = req.clientIp;
-        console.log(`Client's IP: ${clientIp}`);
-
-        const stockData = await getNasdaqData(stock);
-        if (!companyIsListedInNasdaq(stockData)) { return res.send('Company is not listed on NASDAQ.'); } 
-        const record = new stockDataHandler(stockData.symbol, stockData.latestPrice);
-        const stockDataFromDB = await stockModel.findOne({stock: record.stock}, (error, response) => {
-            if (error) { res.send(error.message); }
-            return response;
-        });
-      
-        // company is listed in Nasdaq but not stored in my DB 
-        if (stockDataFromDB === null) { 
-          const stockToStoreInDB = new stockModel({
-            stock: record.stock,
-            likes: [clientIp]
-          });
-          stockToStoreInDB.save((error, response) => {
-            if (error) { res.send(error.message); }
-            return res.json({stockData: {...record, likes: 1}});
-          });
-        }
-          
-        // company is listed in Nasdaq, stored in my DB and client's IP is listed in 'likes' array
-        if (stockDataFromDB.likes.includes(clientIp)) { return res.json({stockData: {...record, likes: stockDataFromDB.likes.length}}); }
-
-        // company is listed in Nasdaq, stored in my DB but client's IP is not listed in 'likes' array
-        stockModel.findByIdAndUpdate(stockDataFromDB._id, {likes: [...stockDataFromDB.likes, clientIp]}, {new: true}, (error, response) => {
-          if (error) { res.send(error.message); }
-          return res.json( {stockData: {...record, likes: response.likes.length}});    
-        });
+        console.log(`Client's IP: ${clientIp}`); 
+        const record = await prepareOneStockDataWhenLikeIsChecked(stock, clientIp);
+        res.json({stockData: record});       
       }
-         
     
       else if (oneStockInRequest && !like) {   
         const record = await prepareOneStockData(stock);
-        res.json(record);
+        res.json({stockData: record});
       }
     
       else if (twoStocksInRequest && like) {
-        res.send('2 strings and like')
+        const clientIp = req.clientIp;
+        console.log(`Client's IP: ${clientIp}`); 
+        const stock1 = stock[0];
+        const stock2 = stock[1];
+        const record1 = await prepareOneStockDataWhenLikeIsChecked(stock1, clientIp);
+        const record2 = await prepareOneStockDataWhenLikeIsChecked(stock2, clientIp);
+        const relLikes1 = record1.likes - record2.likes;
+        const relLikes2 = record2.likes - record1.likes;
+        record1.rel_likes = relLikes1;
+        record2.rel_likes = relLikes2;
+        delete record1.likes;
+        delete record2.likes;
+        
+        res.json({stockData: [record1, record2]})
       }
     
       else if(twoStocksInRequest && !like) {
         const stock1 = stock[0];
         const stock2 = stock[1];
-        const record1 = await prepareStockDataOneOfTwo(stock1);
-        const record2 = await prepareStockDataOneOfTwo(stock2);
+        const record1 = await prepareOneStockData(stock1);
+        const record2 = await prepareOneStockData(stock2);
         
         const relLikes1 = record1.likes - record2.likes;
         const relLikes2 = record2.likes - record1.likes;
