@@ -1,21 +1,16 @@
 /*
   API serves 4 scenarios:
-1. When I type in input (testForm2) company symbol without checking like (testForm2), API cheks if company is listed in Nasdaq and if it is stored in my DB. After then returns an object.
+1. When I type in input (testForm2) company symbol without checking like (testForm2), API cheks if company is listed in Nasdaq and if it is stored in my DB. 
+   After then returns an object.
 2. When I type in input (testForm2) company symbol and I check like (testForm2), API cheks if if company is listed in Nasdaq (if it is not - returns information)
    If company is listed in Nasdaq and not stored in my DB - new record is stored in DB, and object is returned (likes: 1)
-   If company is listed in Nasdaq and stored in my DB - API ckecks if IP of client, which sent a request is equal to any of IPs stored in likes Array: no -> adds client's IP to likes Array.
+   If company is listed in Nasdaq and stored in my DB - API ckecks if IP of client, which sent a request is equal to any of IPs stored in likes Array: no -> adds client's 
+   IP to likes Array.   
+3. When I type in two inputs (testForm) names of 2 companies without checking like (testForm), algoritm is similiar like in po.1, but in returned object instead of 
+   "likes property", "rel_likes" is presented (number of likes for one company minus number of likes for second company)
+ 4. When I type in two inputs (testForm) names of 2 companies and I check like like (testForm) algoritm is similiar like in po.2, but in returned object instead of 
+   "likes property", "rel_likes" is presented.
 */
-
-
-/*      const test = new stockModel({stock: 'GOOG', likes: ['1.1.1.1', '2.2.2.2']});
-        test.save((err, res) => {
-          if (err){console.log(err)}
-          else{console.log('OK');}
-        }) 
-*/
-
-
-//http://eoddata.com/stocklist/NASDAQ.htm
 
 'use strict';
 
@@ -81,6 +76,18 @@ async function prepareOneStockDataWhenLikeIsChecked(stockName, currentIP) {
   return {...record, likes: result.likes.length};   
 }
 
+function formatDeliveredData(record1, record2) {
+  const firstRecord = {...record1};
+  const secondRecord = {...record2};
+  const relLikes1 = firstRecord.likes - secondRecord.likes;
+  const relLikes2 = secondRecord.likes - firstRecord.likes;
+  firstRecord.rel_likes = relLikes1;
+  secondRecord.rel_likes = relLikes2;
+  delete firstRecord.likes;
+  delete secondRecord.likes;
+  return {stockData: [firstRecord, secondRecord]}
+}
+
 
 const connectOptions = { 
   useFindAndModify: false,
@@ -128,14 +135,8 @@ module.exports = function (app) {
         const stock2 = stock[1];
         const record1 = await prepareOneStockDataWhenLikeIsChecked(stock1, clientIp);
         const record2 = await prepareOneStockDataWhenLikeIsChecked(stock2, clientIp);
-        const relLikes1 = record1.likes - record2.likes;
-        const relLikes2 = record2.likes - record1.likes;
-        record1.rel_likes = relLikes1;
-        record2.rel_likes = relLikes2;
-        delete record1.likes;
-        delete record2.likes;
-        
-        res.json({stockData: [record1, record2]})
+               
+        res.json(formatDeliveredData(record1, record2));
       }
     
       else if(twoStocksInRequest && !like) {
@@ -143,15 +144,8 @@ module.exports = function (app) {
         const stock2 = stock[1];
         const record1 = await prepareOneStockData(stock1);
         const record2 = await prepareOneStockData(stock2);
-        
-        const relLikes1 = record1.likes - record2.likes;
-        const relLikes2 = record2.likes - record1.likes;
-        record1.rel_likes = relLikes1;
-        record2.rel_likes = relLikes2;
-        delete record1.likes;
-        delete record2.likes;
-        
-        res.json({stockData: [record1, record2]});        
+                
+        res.json(formatDeliveredData(record1, record2));
       }
     
       else {
