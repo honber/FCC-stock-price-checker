@@ -152,5 +152,13 @@ module.exports = function (app) {
         res.json({"stockData":{"likes":0}})
       }
     });
-    
+  
+  app.route('/api/delete-stock/:companyName') 
+    .get((req, res) => {
+      const companyName = req.params.companyName.toUpperCase();
+      stockModel.deleteOne({stock: companyName}, (error, response) => {
+        if (error) { console.log(error)}
+        return res.json(response);
+      });
+    });
 };

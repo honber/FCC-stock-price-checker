@@ -90,16 +90,34 @@ suite('Functional Tests', () => {
            assert.equal(res.body.stockData[0].rel_likes, 0);      
            done();
         });
-      });
+      });     
+      
     });
+  
+    // Deleting test records for stock='abc' and stock='i' from DB in order to pass tests next time
+    suite('GET /api/delete-stock/', () => {
+      
+      test('"I" stock delete', done => {
+        chai.request(server)
+         .get('/api/delete-stock/i')
+         .end((err, res) => {
+           assert.equal(res.status, 200);
+           assert.equal(res.body.deletedCount, 1);
+           done();
+        });
+      });
+      
+      test('"ABC" stock delete', done => {
+        chai.request(server)
+         .get('/api/delete-stock/abc')
+         .end((err, res) => {
+           assert.equal(res.status, 200);
+           assert.equal(res.body.deletedCount, 1);
+           done();
+        });
+      });
+      
+    });
+  
 });
 
-// Deleting test records for stock='abc' and stock='i' from DB in order to pass tests next time
-stockModel.deleteOne({stock: 'ABC'}, (error, response) => {
-  if (error) { console.log(error)}
-  return response;
-});
-stockModel.deleteOne({stock: 'I'}, (error, response) => {
-  if (error) { console.log(error)}
-  return response;
-});  
